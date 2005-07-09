@@ -1,0 +1,5 @@
+Makefile.PL
+MANIFEST
+lib/Thread/Queue/Duplex.pm
+t/01test.t
+
