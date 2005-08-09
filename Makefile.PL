@@ -12,8 +12,6 @@ eval { require 5.008; } or die << 'EOD';
 EOD
 
 print "\nConfiguring Thread::Queue::Duplex ...\n
->>>\tRemember to actually *READ* the README file!
-   \tAnd re-read it if you have any problems.\n
 ";
 
 my %prereq;
@@ -27,7 +25,7 @@ my %opts =
      );
 
 if ($ExtUtils::MakeMaker::VERSION >= 5.43) {
-    $opts{'AUTHOR'} = 'Presicient Corp. (info@presicient.com)';
+    $opts{'AUTHOR'} = 'Dean Arnold, Presicient Corp. (darnold@presicient.com)';
     $opts{'ABSTRACT'} = 'Thread safe queue with identifiable response elements';
     $opts{'PREREQ_PM'} = \%prereq;
 }
