@@ -1,5 +1,9 @@
 Changes for Thread::Queue::Duplex
 
+0.12	2005-Aug-12	D. Arnold
+
+	- fixed bad test cases
+
 0.11	2005-Aug-15	D. Arnold
 
 	- added Thread::Queue::Queueable (aka TQQ) abstract class

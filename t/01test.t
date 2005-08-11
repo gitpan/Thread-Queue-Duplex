@@ -125,6 +125,7 @@ sub run_nb {
 		last 
 			if ($req->[0] eq 'stop');
 
+#print STDERR join(', ', @$req), "\n";
 		sleep($req->[1])
 			if ($req->[0] eq 'wait');
 #
@@ -468,7 +469,7 @@ foreach ($start..$#servers) {
 #
 	$id = $q->enqueue('wait', 5);
 	$id1 = $q->enqueue('foo', 'bar');
-	$result = $q->wait_until($id, 1);
+	$result = $q->wait_until($id, 3);
 	$q->cancel($id1);
 #print "Cancel: pending :", $q->pending, "\n";
 	$q->pending ? report_fail('cancel()') : report_ok('cancel()');
@@ -511,12 +512,14 @@ foreach ($start..$#servers) {
 	$srvtype = $types[0];
 	my $requestor = threads->new(\&run_requestor, $newq);
 	$newq->listen();
+	$q->wait_for_listener();
 	my @qs = ();
 #
 #	post request to listener
 #	wait on both queues
 #
 	$id = $q->enqueue('wait', 3);
+print "ID is undef!!!\n" unless defined($id);
 	@qs = Thread::Queue::Duplex->wait_any([$q, $id], [$newq]);
 	unless (scalar @qs) {
 		report_fail('class-level wait_any()');
