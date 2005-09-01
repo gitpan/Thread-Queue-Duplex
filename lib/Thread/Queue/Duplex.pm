@@ -17,7 +17,7 @@ use base qw(Thread::Queue::Queueable);
 use strict;
 use warnings;
 
-our $VERSION = '0.12';
+our $VERSION = '0.14';
 
 =head1 NAME
 
@@ -55,10 +55,29 @@ Thread::Queue::Duplex - thread-safe request/response queue with identifiable ele
 	#
 	my $id = $q->enqueue("foo", "bar");
 	#
+	#	enqueue elements, and wait for a response
+	#	(used in the client)
+	#
+	my $resp = $q->enqueue_and_wait("foo", "bar");
+	#
+	#	enqueue elements, and wait for a response
+	#	until $timeout secs (used in the client)
+	#
+	my $resp = $q->enqueue_and_wait_until($timeout, "foo", "bar");
+	#
 	#	enqueue elements at head of queue, returning a 
 	#	unique queue ID (used in the client)
 	#
 	my $id = $q->enqueue_urgent("foo", "bar");
+	#
+	#	enqueue elements at head of queue and wait for response
+	#
+	my $resp = $q->enqueue_urgent_and_wait("foo", "bar");
+	#
+	#	enqueue elements at head of queue and wait for 
+	#	response until $timeout secs
+	#
+	my $resp = $q->enqueue_urgent_and_wait_until($timeout, "foo", "bar");
 	#
 	#	enqueue elements for simplex operation (no response)
 	#	returning the queue object
@@ -335,9 +354,31 @@ Creates a shared array, pushes a unique
 identifier onto the shared array, then pushes the LIST onto the array,
 then pushes the shared arrayref onto the queue.
 
+=item enqueue_and_wait(@request)
+
+Same as L<enqueue>, except that it waits for and returns
+the response, rather than returning immediately with the
+request ID.
+
+=item enqueue_and_wait_until($timeout, @request)
+
+Same as L<enqueue>, except that it waits up to $timeout
+seconds for a response, returning the response, rather 
+than returning immediately with the request ID.
+
 =item enqueue_urgent(@request)
 
 Same as L<enqueue>, but adds the element to head of queue, rather
+than tail.
+
+=item enqueue_urgent_and_wait(@request)
+
+Same as L<enqueue_and_wait>, but adds the element to head of queue, rather
+than tail.
+
+=item enqueue_urgent_and_wait_until($timeout, @request)
+
+Same as L<enqueue_and_wait_until>, but adds the element to head of queue, rather
 than tail.
 
 =item enqueue_simplex(@request)
@@ -605,14 +646,15 @@ sub new {
 	    $@ = 'Invalid argument list',
 	    return undef
 	    	if (($_ eq 'MaxPending') && 
+	    		defined($args{$_}) &&
 	    		(($args{$_}!~/^\d+/) || ($args{$_} < 0)));
     }
     my $idgen : shared = 1;
     my $listeners : shared = 0;
-	my $max_pending : shared = $args{MaxPending};
+	my $max_pending : shared = $args{MaxPending} || 0;
 	my $urgent_count : shared = 0;
 	my %marks : shared = ();
-    my $obj = [
+    my @obj : shared = (
     	&share([]),
     	&share({}),
     	\$idgen,
@@ -621,9 +663,9 @@ sub new {
     	\$max_pending,
     	\$urgent_count,
     	\%marks
-    ];
+    );
     	
-    return bless $obj, $class;
+    return bless \@obj, $class;
 }
 
 sub listen {
@@ -757,6 +799,46 @@ sub enqueue_urgent {
 	lock($tqd_global_lock);
 	cond_broadcast($tqd_global_lock);
     return $id;
+}
+#
+#	blocking versions of enqueue()
+#
+sub enqueue_and_wait {
+    my $obj = shift;
+
+	my $id = $obj->enqueue(@_);
+	return undef 
+		unless defined($id);
+	return $obj->wait($id);
+}
+
+sub enqueue_and_wait_until {
+    my $obj = shift;
+	my $timeout = shift;
+
+	my $id = $obj->enqueue(@_);
+	return undef 
+		unless defined($id);
+	return $obj->wait_until($id, $timeout);
+}
+
+sub enqueue_urgent_and_wait {
+    my $obj = shift;
+
+	my $id = $obj->enqueue_urgent(@_);
+	return undef
+		unless defined($id);
+	return $obj->wait($id);
+}
+
+sub enqueue_urgent_and_wait_until {
+    my $obj = shift;
+	my $timeout = shift;
+
+	my $id = $obj->enqueue_urgent(@_);
+	return undef
+		unless defined($id);
+	return $obj->wait_until($id, $timeout);
 }
 #
 #	Simplex versions
@@ -1489,19 +1571,15 @@ sub _tqd_wait {
 #	to support passing between threads
 #
 sub curse {
-	my $obj = shift;
 #
-#	NOTE: yes we have to init separately from declaration;
-#	it seems shared doesn't copy things properly
+#	we're shared already
 #
-	my @tqd : shared = ();
-	$tqd[$_] = $obj->[$_] foreach (0..5);
-	return \@tqd;
+	return shift;
 }
 
 sub redeem {
 	my ($class, $obj) = @_;
-	return bless [ @$obj ], $class;
+	return bless $obj, $class;
 }
 
 1;

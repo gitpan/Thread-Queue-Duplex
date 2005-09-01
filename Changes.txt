@@ -1,5 +1,20 @@
 Changes for Thread::Queue::Duplex
 
+0.14	2005-Aug-29 D. Arnold
+
+	- fixed constructor to handle undef'd argument hash values
+
+	- changed to make TQD objects fully shared
+	
+	- changed default TQQ curse() to be NO-OP if object is already shared
+
+0.13	2005-Aug-19 D. Arnold
+
+	- added enqueue_and_wait(), 
+		enqueue_and_wait_until(),
+		enqueue_urgent_and_wait(),
+		enqueue_urgent_and_wait_until()
+
 0.12	2005-Aug-12	D. Arnold
 
 	- fixed bad test cases

@@ -12,7 +12,7 @@ use threads::shared;
 use strict;
 use warnings;
 
-our $VERSION = '0.10';
+our $VERSION = '0.14';
 
 =head1 NAME
 
@@ -204,6 +204,10 @@ sub onCancel {
 #
 sub curse {
 	my $obj = shift;
+#
+#	if we're already shared, don't share again
+#
+	return $obj if threads::shared::_id($obj);
 
 	if ($obj->isa('HASH')) {
 		my %cursed : shared = ();
@@ -223,7 +227,11 @@ sub curse {
 #
 sub redeem {
 	my ($class, $obj) = @_;
-
+#
+#	we *could* just return the blessed object,
+#	which would be shared...but that might
+#	not be the expected behavior...
+#
 	if (ref $obj eq 'HASH') {
 		my $redeemed = {};
 		$redeemed->{$_} = $obj->{$_}

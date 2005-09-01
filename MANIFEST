@@ -1,6 +1,5 @@
 Makefile.PL
 MANIFEST
-Changes.txt
 lib/Thread/Queue/Duplex.pm
 lib/Thread/Queue/Queueable.pm
 t/01test.t
