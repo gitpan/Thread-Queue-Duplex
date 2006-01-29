@@ -1,5 +1,17 @@
 Changes for Thread::Queue::Duplex
 
+0.90	2006-Jan-31 D. Arnold
+
+	- updated TQQ default redeem to auto-rebless thread::shared objects
+
+	- updated TQD to simplify Thread::Queue::Multiplex subclass
+	
+	- fix for CPAN bug 16944 (thnx to phernandez@friendfinderinc.com)
+	
+	- minimum Perl 5.8 required (for threads::shared::_id reference)
+	
+	- POD cleanup
+
 0.14	2005-Aug-29 D. Arnold
 
 	- fixed constructor to handle undef'd argument hash values

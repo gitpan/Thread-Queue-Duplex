@@ -1,7 +1,7 @@
 package Thread::Queue::Queueable;
 #
-#	abstract class to permit an object to be 
-#	marshalled in some way before pushing onto 
+#	abstract class to permit an object to be
+#	marshalled in some way before pushing onto
 #	a Thread::Queue::Duplex queue
 #
 require 5.008;
@@ -12,11 +12,11 @@ use threads::shared;
 use strict;
 use warnings;
 
-our $VERSION = '0.14';
+our $VERSION = '0.90';
 
 =head1 NAME
 
-Thread::Queue::Queueable - abstract class for marshalling/unmarshalling 
+Thread::Queue::Queueable - abstract class for marshalling/unmarshalling
 an element as it is enqueued or dequeued from a Thread::Queue::Duplex queue
 
 =head1 SYNOPSIS
@@ -34,7 +34,7 @@ an element as it is enqueued or dequeued from a Thread::Queue::Duplex queue
 	#	version of object
 	#
 		return $obj->isa('ARRAY') ?
-			(ref $obj, share([ @$obj ])) : 
+			(ref $obj, share([ @$obj ])) :
 			(ref $obj, share({ %$obj }));
 	}
 	#
@@ -102,7 +102,7 @@ whenever an object is enqueued or dequeued, in either the request
 or response direction, on a L<Thread::Queue::Duplex> (I<TQD>) queue.
 
 The primary purpose is to simplify application logic so that
-marshalling/unmarhsalling of objects between threads is performed 
+marshalling/unmarhsalling of objects between threads is performed
 automatically. In addition, when subclassed, the application class
 can modify or add logic (e.g., notifying a server thread object
 to update its reference count when a wrapped object is passed between
@@ -114,7 +114,7 @@ threads - see L<DBIx::Threaded> for an example).
 
 =item onEnqueue($obj)
 
-Called by TQD's C<enqueue()>, C<enqueue_urgent()>, and 
+Called by TQD's C<enqueue()>, C<enqueue_urgent()>, and
 C<respond()> methods. The default implementation L<curse>s the input
 object into either a shared array or shared hash, and returns a list
 consisting of the object's class name, and the cursed object.
@@ -137,12 +137,12 @@ The default is a pure virtual function.
 
 =item curse($obj)
 
-Called by TQD'd various C<enqueue()> and C<respond()> functions 
-when the TQQ object is being enqueue'd. Should return an unblessed, 
-shared version of the input object. Default returns a shared 
-arrayref or hashref, depending on $obj's base structure, with 
+Called by TQD'd various C<enqueue()> and C<respond()> functions
+when the TQQ object is being enqueue'd. Should return an unblessed,
+shared version of the input object. Default returns a shared
+arrayref or hashref, depending on $obj's base structure, with
 copies of all scalar members.
-B<Note> that objects with more complex members will need to 
+B<Note> that objects with more complex members will need to
 implement an object specific C<curse()> to do any deepcopying,
 including C<curse()>ing any subordinate objects.
 
@@ -227,6 +227,12 @@ sub curse {
 #
 sub redeem {
 	my ($class, $obj) = @_;
+#
+#	if object is already shared, just rebless it
+#	NOTE: we can only do this when threads::shared::_id() is defined
+#
+	return bless $obj, $class
+		if threads::shared->can('_id') && threads::shared::_id($obj);
 #
 #	we *could* just return the blessed object,
 #	which would be shared...but that might

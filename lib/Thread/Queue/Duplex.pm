@@ -1,6 +1,6 @@
 package Thread::Queue::Duplex;
 #
-#	Copyright (C) 2005, Presicient Corp., USA
+#	Copyright (C) 2005,2006, Presicient Corp., USA
 #
 #	Provides a means for N threads to queue
 #	items to  thread, and then wait only for
@@ -12,16 +12,53 @@ use threads;
 use threads::shared;
 use Thread::Queue::Queueable;
 
+use Exporter;
+
+BEGIN {
+our @ISA = qw(Exporter);
+
+use constant TQD_Q => 0;
+use constant TQD_MAP => 1;
+use constant TQD_IDGEN => 2;
+use constant TQD_LISTENERS => 3;
+use constant TQD_REQUIRE_LISTENER => 4;
+use constant TQD_MAX_PENDING => 5;
+use constant TQD_URGENT_COUNT => 6;
+use constant TQD_MARKS => 7;
+
+our @EXPORT    = ();		    # we export nothing by default
+our @EXPORT_OK = qw($tqd_global_lock);
+
+our %EXPORT_TAGS = (
+	tqd_codes => [
+		qw/TQD_Q TQD_MAP TQD_IDGEN TQD_LISTENERS TQD_REQUIRE_LISTENER
+		TQD_MAX_PENDING TQD_URGENT_COUNT TQD_MARKS/
+	]);
+
+Exporter::export_tags(keys %EXPORT_TAGS);
+}
+
 use base qw(Thread::Queue::Queueable);
 
 use strict;
 use warnings;
+#
+#	global semaphore used for class-level wait()
+#	notification
+#
+our $tqd_global_lock : shared = 0;
 
-our $VERSION = '0.14';
+our $VERSION = '0.90';
 
 =head1 NAME
 
 Thread::Queue::Duplex - thread-safe request/response queue with identifiable elements
+
+=begin html
+
+<a href='http://www.presicient.com/tqd/Thread-Queue-Duplex-0.90.tar.gz'>Thread-Queue-Duplex-0.90.tar.gz</a>
+
+=end html
 
 =head1 SYNOPSIS
 
@@ -65,7 +102,7 @@ Thread::Queue::Duplex - thread-safe request/response queue with identifiable ele
 	#
 	my $resp = $q->enqueue_and_wait_until($timeout, "foo", "bar");
 	#
-	#	enqueue elements at head of queue, returning a 
+	#	enqueue elements at head of queue, returning a
 	#	unique queue ID (used in the client)
 	#
 	my $id = $q->enqueue_urgent("foo", "bar");
@@ -74,7 +111,7 @@ Thread::Queue::Duplex - thread-safe request/response queue with identifiable ele
 	#
 	my $resp = $q->enqueue_urgent_and_wait("foo", "bar");
 	#
-	#	enqueue elements at head of queue and wait for 
+	#	enqueue elements at head of queue and wait for
 	#	response until $timeout secs
 	#
 	my $resp = $q->enqueue_urgent_and_wait_until($timeout, "foo", "bar");
@@ -101,8 +138,8 @@ Thread::Queue::Duplex - thread-safe request/response queue with identifiable ele
 	my $foo = $q->dequeue_nb;
 	#
 	#	dequeue next available element (used in the server),
-	#	returned undef if no element available within $timeout 
-	#	seconds; otherwise, returns shared arrayref, first 
+	#	returned undef if no element available within $timeout
+	#	seconds; otherwise, returns shared arrayref, first
 	#	element is unique ID, which may be undef for simplex requests
 	#
 	my $foo = $q->dequeue_until($timeout);
@@ -121,7 +158,7 @@ Thread::Queue::Duplex - thread-safe request/response queue with identifiable ele
 	#
 	$q->respond($id, @list);
 	#
-	#	tests for a response to the queued 
+	#	tests for a response to the queued
 	#	element identified by $id; returns undef if
 	#	not yet available, else returns the queue object
 	#
@@ -135,42 +172,42 @@ Thread::Queue::Duplex - thread-safe request/response queue with identifiable ele
 	#
 	my @ids = $q->available();
 	#
-	#	wait for and return the response for the 
+	#	wait for and return the response for the
 	#	specified unique identifier
 	#	(dequeue_response is alias)
 	#
 	my $result = $q->wait($id);
 	my $result = $q->dequeue_response($id);
 	#
-	#	waits up to $timeout seconds for a response to 
+	#	waits up to $timeout seconds for a response to
 	#	the queued element identified by $id; returns undef if
 	#	not available within $timeout, else returns the queue object
 	#
 	my $result = $q->wait_until($id, $timeout);
 	#
-	#	wait for a response to the queued 
+	#	wait for a response to the queued
 	#	elements listed in @ids, returning a hashref of
 	#	the first available response(s), keyed by id
 	#
 	my $result = $q->wait_any(@ids);
 	#
-	#	wait upto $timeout seconds for a response to 
-	#	the queued elements listed in @ids, returning 
+	#	wait upto $timeout seconds for a response to
+	#	the queued elements listed in @ids, returning
 	#	a hashref of the first available response(s), keyed by id
 	#	Returns undef if none available in $timeout seconds
 	#
 	my $result = $q->wait_any_until($timeout, @ids);
 	#
-	#	wait for responses to all the queued 
+	#	wait for responses to all the queued
 	#	elements listed in @ids, returning a hashref of
 	#	the response(s), keyed by id
 	#
 	my $result = $q->wait_all(@ids);
 	#
-	#	wait upto $timeout seconds for responses to 
-	#	all the queued elements listed in @ids, returning 
+	#	wait upto $timeout seconds for responses to
+	#	all the queued elements listed in @ids, returning
 	#	a hashref of the response(s), keyed by id
-	#	Returns undef if all responses not recv'd 
+	#	Returns undef if all responses not recv'd
 	#	in $timeout seconds
 	#
 	my $result = $q->wait_all_until($timeout, @ids);
@@ -200,10 +237,10 @@ Thread::Queue::Duplex - thread-safe request/response queue with identifiable ele
 	#	any of the listed queue objects. Returns a
 	#	list of queues which have events pending
 	#
-	my $result = Thread::Queue::Duplex->wait_any( 
+	my $result = Thread::Queue::Duplex->wait_any(
 		[ $q1 ], [ $q2, @ids ]);
 	#
-	#	(class-level method) wait upto $timeout seconds 
+	#	(class-level method) wait upto $timeout seconds
 	#	for an event on any of the listed queue objects.
 	#	Returns undef if none available in $timeout seconds,
 	#	otherwise, returns a list of queues with events pending
@@ -214,10 +251,10 @@ Thread::Queue::Duplex - thread-safe request/response queue with identifiable ele
 	#	(class-level method) wait for events on all the listed
 	#	queue objects. Returns the list of queue objects.
 	#
-	my $result = Thread::Queue::Duplex->wait_all( 
+	my $result = Thread::Queue::Duplex->wait_all(
 		[ $q1 ], [ $q2, @ids ]);
 	#
-	#	(class-level method) wait upto $timeout seconds for 
+	#	(class-level method) wait upto $timeout seconds for
 	#	events on all the listed queue objects.
 	#	Returns empty list if all listed queues do not have
 	#	an event in $timeout seconds, otherwise returns
@@ -239,12 +276,34 @@ do not assign unique identifiers, and are used for requests
 to which no response is required/expected.
 
 In addition, elements are inspected as they are enqueued/dequeued to determine
-if they are L<Thread::Queue::Queueable> (I<aka TQQ>) objects, and, if so, 
-the onEnqueue() or onDequeue() methods are called to permit any 
-additional class-specific marshalling/unmarshalling to be performed. 
-B<NOTE:> Thread::Queue::Duplex (I<aka TQD>) is itself a 
+if they are L<Thread::Queue::Queueable> (I<aka TQQ>) objects, and, if so,
+the onEnqueue() or onDequeue() methods are called to permit any
+additional class-specific marshalling/unmarshalling to be performed.
+Thread::Queue::Duplex (I<aka TQD>) is itself a
 L<Thread::Queue::Queueable> object, thus permitting TQD
 objects to be passed between threads.
+
+B<NOTE:> Thread::Queue::Duplex does
+B<not> perform any default marshalling of complex structures; it is the
+responsibility of the application to either
+
+=over 4
+
+=item *
+
+use L<threads::shared> objects for all queued structures
+
+=item *
+
+implement its own application specific marshalling via, e.g.,
+L<Storable>
+
+=item *
+
+implement a L<Thread::Queue::Queueable> wrapper class for
+the structure
+
+=back
 
 Various C<wait()> methods are provided to permit waiting on individual
 responses, any or all of a list of responses, and time-limited waits
@@ -265,15 +324,21 @@ in the request. Cancelling will result in one of
 
 =over 4
 
-=item marking the request as cancelled if
-it has not yet been dequeued (note that it cannot be 
-spliced from the queue due C<threads::shared>'s lack 
+=item *
+
+marking the request as cancelled if
+it has not yet been dequeued (note that it cannot be
+spliced from the queue due C<threads::shared>'s lack
 of support for array splicing)
 
-=item removal and discarding of the response from the response map
+=item *
+
+removal and discarding of the response from the response map
 if the request has already been processed
 
-=item if the request is in progress, the responder will
+=item *
+
+if the request is in progress, the responder will
 detect the cancellation when it attempts to C<respond()>,
 and the response will be discarded
 
@@ -295,19 +360,27 @@ that specifies the maximum number of requests that may
 be pending in the queue before the operation will block.
 Note that responses are not counted in this limit.
 
-C<Thread::Queue::Duplex> objects encapsulate 
+C<Thread::Queue::Duplex> objects encapsulate
 
 =over 4
 
-=item a shared array, used as the queue (same as L<Thread::Queue>)
+=item *
 
-=item a shared scalar, used to provide unique identifier sequence
+a shared array, used as the queue (same as L<Thread::Queue>)
+
+=item *
+
+a shared scalar, used to provide unique identifier sequence
 numbers
 
-=item a shared hash, I<aka> the mapping hash, used to return responses 
+=item *
+
+a shared hash, I<aka> the mapping hash, used to return responses
 to enqueued elements, using the generated uniqiue identifier as the hash key
 
-=item a listener count, incremented each time C<listen()> is called,
+=item *
+
+a listener count, incremented each time C<listen()> is called,
 decremented each time C<ignore()> is called, and, if
 the "listener required" flag has been set on construction, tested
 for each C<enqueue()> call.
@@ -336,7 +409,7 @@ A normal processing sequence for Thread::Queue::Duplex might be:
 
 =over 8
 
-=item new([ListenerRequired => $val, MaxPending => $limit])
+=item B<new>(I<[ListenerRequired =E<gt> $val, MaxPending =E<gt> $limit]>)
 
 The C<new> function creates a new empty queue,
 and associated mapping hash. If a "true" C<ListenerRequired>
@@ -348,154 +421,154 @@ attempt to queue a request will block until the pending count
 drops below C<$limit>. This limit may be applied or modified later
 via the C<set_max_pending()> method (see below).
 
-=item enqueue(@request)
+=item B<enqueue>(I<@request>)
 
 Creates a shared array, pushes a unique
 identifier onto the shared array, then pushes the LIST onto the array,
 then pushes the shared arrayref onto the queue.
 
-=item enqueue_and_wait(@request)
+=item B<enqueue_and_wait>(I<@request>)
 
 Same as L<enqueue>, except that it waits for and returns
 the response, rather than returning immediately with the
 request ID.
 
-=item enqueue_and_wait_until($timeout, @request)
+=item B<enqueue_and_wait_until>(I<$timeout, @request>)
 
 Same as L<enqueue>, except that it waits up to $timeout
-seconds for a response, returning the response, rather 
+seconds for a response, returning the response, rather
 than returning immediately with the request ID.
 
-=item enqueue_urgent(@request)
+=item B<enqueue_urgent>(I<@request>)
 
 Same as L<enqueue>, but adds the element to head of queue, rather
 than tail.
 
-=item enqueue_urgent_and_wait(@request)
+=item B<enqueue_urgent_and_wait>(I<@request>)
 
 Same as L<enqueue_and_wait>, but adds the element to head of queue, rather
 than tail.
 
-=item enqueue_urgent_and_wait_until($timeout, @request)
+=item B<enqueue_urgent_and_wait_until>(I<$timeout, @request>)
 
 Same as L<enqueue_and_wait_until>, but adds the element to head of queue, rather
 than tail.
 
-=item enqueue_simplex(@request)
+=item B<enqueue_simplex>(I<@request>)
 
 Same as L<enqueue>, but does not allocate an identifier, nor
 expect a response.
 
-=item enqueue_simplex_urgent(@request)
+=item B<enqueue_simplex_urgent>(I<@request>)
 
 Same as L<enqueue_simplex>, but adds the element to head of queue,
 rather than tail.
 
-=item dequeue
+=item B<dequeue>()
 
 Waits indefinitely for an element to become available
 in the queue, then removes and returns it.
 
-=item dequeue_nb
+=item B<dequeue_nb>()
 
 The C<dequeue_nb> method is identical to C<dequeue>(),
 except it will return undef immediately if there are no
 elements currently in the queue.
 
-=item dequeue_until
+=item B<dequeue_until>()
 
-Identical to C<dequeue>(), except it accepts a C<$timeout> 
-parameter specifying a duration (in seconds) to wait for 
+Identical to C<dequeue>(), except it accepts a C<$timeout>
+parameter specifying a duration (in seconds) to wait for
 an available element. If no element is
 available within the $timeout, it returns undef.
 
-=item dequeue_urgent
+=item B<dequeue_urgent>()
 
 Identical to C<dequeue_nb>(), except it only
-returns the next available element if it has been queued 
+returns the next available element if it has been queued
 via either C<enqueue_urgent>() or C<enqueue_simplex_urgent>().
 Useful for servers which poll for events, e.g.,
 for external aborts of long-running operations.
 
-=item pending
+=item B<pending>()
 
 Returns the number of items still in the queue.
 
-=item set_max_pending($limit)
+=item B<set_max_pending>(I<$limit>)
 
 Set the maximum number of requests that may be queued
 without blocking the requestor.
 
-=item respond($id [, LIST ])
+=item B<respond>(I<$id [, LIST ]>)
 
 Creates a new element in the mapping hash, keyed by C<$id>,
 with a value set to a shared arrayref containing LIST.
 If C<$id> is C<undef>, the operation is silently ignored
 (in order to gracefully support simplex requests).
 
-=item ready($id)
+=item B<ready>(I<$id>)
 
-Tests for a response to a uniquely identified 
+Tests for a response to a uniquely identified
 previously C<enqueue>'d LIST. Returns undef if no
-response is available, otherwise returns the 
+response is available, otherwise returns the
 Thread::Queue::Duplex object.
 
-=item available([@ids])
+=item B<available>(I<[@ids]>)
 
 Returns list of available response ID's;
 if C<@ids> provided, only returns ID's from the list.
-Returns undef if none available; in scalar context, 
-returns only first available; else a returns a 
+Returns undef if none available; in scalar context,
+returns only first available; else a returns a
 list of available IDs.
 
-=item wait($id) I<aka> dequeue_response($id)
+=item B<wait>(I<$id>) I<aka> B<dequeue_response>(I<$id>)
 
-Waits indefinitely for a response to a uniquely identified 
+Waits indefinitely for a response to a uniquely identified
 previously C<enqueue>'d LIST. Returns the returned result.
 
-=item wait_until($id, $timeout)
+=item B<wait_until>(I<$id, $timeout>)
 
-Waits up to $timeout seconds for a response to 
+Waits up to $timeout seconds for a response to
 to a uniquely identified previously C<enqueue>'d LIST.
 Returns undef if no response is available in the specified
 $timeout duration, otherwise, returns the result.
 
-=item wait_any(@ids) I<[instance method form]>
+=item B<wait_any>(I<@ids>) I<[instance method form]>
 
-Wait indefinitely for a response to any of the 
+Wait indefinitely for a response to any of the
 previously C<enqueue>'d elements specified in the
-the supplied C<@ids>. Returns a hashref of available 
+the supplied C<@ids>. Returns a hashref of available
 responses keyed by their identifiers
 
-=item wait_any_until($timeout, @ids) I<[instance method form]>
+=item B<wait_any_until>(I<$timeout, @ids>) I<[instance method form]>
 
-Wait upto $timeout seconds for a response to any of the 
+Wait upto $timeout seconds for a response to any of the
 previously C<enqueue>'d elements specified in the
-the supplied C<@ids>. Returns a hashref of available 
+the supplied C<@ids>. Returns a hashref of available
 responses keyed by their identifiers, or undef if none
 available within $timeout seconds.
 
-=item wait_all(@ids) I<[instance method form]>
+=item B<wait_all>(I<@ids>) I<[instance method form]>
 
-Wait indefinitely for a response to all the 
+Wait indefinitely for a response to all the
 previously C<enqueue>'d elements specified in
 the supplied C<@ids>. Returns a hashref of
 responses keyed by their identifiers.
 
-=item wait_all_until($timeout, @ids) I<[instance method form]>
+=item B<wait_all_until>(I<$timeout, @ids>) I<[instance method form]>
 
-Wait upto C<$timeout> seconds for a response to all the 
+Wait upto C<$timeout> seconds for a response to all the
 previously C<enqueue>'d elements specified in
 the supplied C<@ids>. Returns a hashref of
 responses keyed by their identifiers, or undef if all
 responses are not available within $timeout seconds.
 
-=item wait_any(@queue_refs) I<[class method form]>
+=item B<wait_any>(I<@queue_refs>) I<[class method form]>
 
-Wait indefinitely for an event on any of the listed queue objects. 
+Wait indefinitely for an event on any of the listed queue objects.
 Returns a list of queues which have events pending. C<@queue_refs>
-elements may be either TQD objects, or arrayrefs whose first element 
-is a TQD object, and the remaining elements are queue'd element 
+elements may be either TQD objects, or arrayrefs whose first element
+is a TQD object, and the remaining elements are queue'd element
 identifiers. For bare TQD elements and arrayref elements
 with no identifiers, C<wait_any> waits for an enqueue event
 on the queue; otherwise, it waits for a response event for any
@@ -507,7 +580,7 @@ functions to behave properly, the "main" application should
 class-level shared variable used for signalling events
 across all TQD instances. Failure to do so could cause a segregation
 of TQD objects created in threads descended from different
-parent threads (due to the perl interpretter cloning 
+parent threads (due to the perl interpretter cloning
 when threads are created).
 
 B<Also note> that only enqueue and response events are detected;
@@ -519,26 +592,26 @@ pending on them when they are returned, since multiple threads
 may be notified of an event on the same queue, but one
 thread may have handled the event before the other thread(s).
 
-=item wait_any_until($timeout, @queue_refs) I<[class method form]>
+=item B<wait_any_until>(I<$timeout, @queue_refs>) I<[class method form]>
 
-Wait upto C<$timeout> seconds for an event on any of the listed 
+Wait upto C<$timeout> seconds for an event on any of the listed
 queue objects. Returns undef if none available in C<$timeout> seconds,
 otherwise, returns a list of queues with events pending. C<@queue_refs>
 is the same as for C<wait_any()>.
 
-=item wait_all(@queue_refs) I<[class method form]>
+=item B<wait_all>(I<@queue_refs>) I<[class method form]>
 
 Wait indefinitely for events on all the listed
 queue objects. Returns the list of queue objects.
 
-=item wait_all_until($timeout, @queue_refs) I<[class method form]>
+=item B<wait_all_until>(I<$timeout, @queue_refs>) I<[class method form]>
 
-Wait upto C<$timeout> seconds for events on all the listed 
+Wait upto C<$timeout> seconds for events on all the listed
 queue objects. Returns an empty list if all listed queues do not have
 an event in C<$timeout> seconds, otherwise returns
 the list of queue objects.
 
-=item C<mark($id [ , $value ])>
+=item B<mark>(I<$id [ , $value ]>)
 
 Marks the specified request with the given value.
 If the request has not been processed, it will be marked
@@ -552,34 +625,34 @@ a response for the request.
 Note that C<$value>' are not cumulative, i.e., if multiple
 marks are applied, only the most recent C<$value> is retained.
 
-=item C<marked($id [, $value ])>
+=item B<marked>(I<$id [, $value ]>)
 
 Tests if the specified request has been marked with
 the given C<$value>. If no C<$value> is specified, simply tests
 if the request is marked. Returns true or false.
 
-=item C<get_mark($id)>
+=item B<get_mark>(I<$id>)
 
 Returns the current mark value of a request, if any.
 
-=item cancel(@ids)
+=item B<cancel>(I<@ids>)
 
-Cancels all the requests identified in C<@ids>. 
+Cancels all the requests identified in C<@ids>.
 If a response to a cancelled request has already been
-posted to the queue response map (i.e., the request has already 
-been serviced), the response is removed from the map, 
-the C<onCancel()> method is invoked on each 
+posted to the queue response map (i.e., the request has already
+been serviced), the response is removed from the map,
+the C<onCancel()> method is invoked on each
 L<Thread::Queue::Queueable> object in the response,
 and the response is discarded.
 
-If a response to a cancelled request has B<not> yet been posted to 
-the queue response map, an empty entry is added to the queue response map. 
+If a response to a cancelled request has B<not> yet been posted to
+the queue response map, an empty entry is added to the queue response map.
 (B<Note>: L<threads::shared> doesn't permit splicing shared arrays yet,
 so we can't remove the request from the queue).
 
-When a server thread attempts to C<dequeue[_nb|_until]()> a cancelled 
-request, the request is discarded and the dequeue operation is retried. 
-If the cancelled request is already dequeued, the server thread will 
+When a server thread attempts to C<dequeue[_nb|_until]()> a cancelled
+request, the request is discarded and the dequeue operation is retried.
+If the cancelled request is already dequeued, the server thread will
 detect the cancellation when it attempts to C<respond()> to the request,
 and will invoke the C<onCancel()> method on any L<Thread::Queue::Queueable>
 objects in the response, and then discards the response.
@@ -587,7 +660,7 @@ objects in the response, and then discards the response.
 B<Note> that, simplex requests do not have an identifier, there
 is no way to explicitly cancel a specific simplex request.
 
-=item cancel_all()
+=item B<cancel_all>()
 
 Cancels B<all> current requests and responses, using the C<cancel()>
 algorithm above, plus cancels all simplex requests still
@@ -601,41 +674,27 @@ have an entry in the response map)  will B<not> be cancelled.
 
 =head1 SEE ALSO
 
-L<Thread::Queue::Queueable>, L<threads>, L<threads::shared>, L<Thread::Queue>
+L<Thread::Queue::Queueable>, L<threads>, L<threads::shared>, L<Thread::Queue>,
+L<Thread::Queue::Multiplex>
 
 =head1 AUTHOR, COPYRIGHT, & LICENSE
 
 Dean Arnold, Presicient Corp. L<darnold@presicient.com>
 
-Copyright(C) 2005, Presicient Corp., USA
+Copyright(C) 2005,2006, Presicient Corp., USA
 
 Permission is granted to use this software under the same terms
 as Perl itself. Refer to the Perl Artistic License for details.
 
 =cut
 
-#
-#	global semaphore used for class-level wait()
-#	notification
-#
-our $tqd_global_lock : shared = 0;
-
-use constant TQD_Q => 0;
-use constant TQD_MAP => 1;
-use constant TQD_IDGEN => 2;
-use constant TQD_LISTENERS => 3;
-use constant TQD_REQUIRE_LISTENER => 4;
-use constant TQD_MAX_PENDING => 5;
-use constant TQD_URGENT_COUNT => 6;
-use constant TQD_MARKS => 7;
-
 sub new {
     my $class = shift;
-    
+
     $@ = 'Invalid argument list',
     return undef
     	if (scalar @_ && (scalar @_ & 1));
-    
+
     my %args = @_;
     foreach (keys %args) {
 	    $@ = 'Invalid argument list',
@@ -645,7 +704,7 @@ sub new {
 
 	    $@ = 'Invalid argument list',
 	    return undef
-	    	if (($_ eq 'MaxPending') && 
+	    	if (($_ eq 'MaxPending') &&
 	    		defined($args{$_}) &&
 	    		(($args{$_}!~/^\d+/) || ($args{$_} < 0)));
     }
@@ -664,7 +723,7 @@ sub new {
     	\$urgent_count,
     	\%marks
     );
-    	
+
     return bless \@obj, $class;
 }
 
@@ -690,7 +749,7 @@ sub wait_for_listener {
 	my ($obj, $timeout) = shift;
 	lock(${$obj->[TQD_LISTENERS]});
 
-	return undef 
+	return undef
 		if ($timeout && ($timeout < 0));
 
 	if ($timeout) {
@@ -714,7 +773,7 @@ sub _filter_nq {
 #
 	my $i = 1;
 	foreach (@_) {
-		if (ref $_ && 
+		if (ref $_ &&
 			(ref $_ ne 'ARRAY') &&
 			(ref $_ ne 'HASH') &&
 			(ref $_ ne 'SCALAR') &&
@@ -759,7 +818,7 @@ sub _lock_load {
 
 sub _get_id {
 	my $obj = shift;
-	
+
 	lock(${$obj->[TQD_IDGEN]});
 	my $id = ${$obj->[TQD_IDGEN]}++;
 #
@@ -774,7 +833,7 @@ sub _get_id {
 sub enqueue {
     my $obj = shift;
 
-	return undef 
+	return undef
 		if ($obj->[TQD_REQUIRE_LISTENER] &&
 			(! ${$obj->[TQD_LISTENERS]}));
 	my $id = $obj->_get_id;
@@ -789,7 +848,7 @@ sub enqueue {
 sub enqueue_urgent {
     my $obj = shift;
 
-	return undef 
+	return undef
 		if ($obj->[TQD_REQUIRE_LISTENER] &&
 			(! ${$obj->[TQD_LISTENERS]}));
 	my $id = $obj->_get_id;
@@ -807,7 +866,7 @@ sub enqueue_and_wait {
     my $obj = shift;
 
 	my $id = $obj->enqueue(@_);
-	return undef 
+	return undef
 		unless defined($id);
 	return $obj->wait($id);
 }
@@ -817,7 +876,7 @@ sub enqueue_and_wait_until {
 	my $timeout = shift;
 
 	my $id = $obj->enqueue(@_);
-	return undef 
+	return undef
 		unless defined($id);
 	return $obj->wait_until($id, $timeout);
 }
@@ -846,7 +905,7 @@ sub enqueue_urgent_and_wait_until {
 sub enqueue_simplex {
     my $obj = shift;
 
-	return undef 
+	return undef
 		if ($obj->[TQD_REQUIRE_LISTENER] &&
 			(! ${$obj->[TQD_LISTENERS]}));
 
@@ -861,7 +920,7 @@ sub enqueue_simplex {
 sub enqueue_simplex_urgent {
     my $obj = shift;
 
-	return undef 
+	return undef
 		if ($obj->[TQD_REQUIRE_LISTENER] &&
 			(! ${$obj->[TQD_LISTENERS]}));
 
@@ -884,7 +943,7 @@ sub _filter_dq {
 	my $class;
 	$class = shift @$result,
 	push (@results,
-		$class ? 
+		$class ?
 		${class}->onDequeue(shift @$result) :
 		shift @$result)
 		while (@$result);
@@ -932,7 +991,7 @@ sub dequeue  {
 sub dequeue_until {
     my ($obj, $timeout) = @_;
 
-    return undef 
+    return undef
     	unless $timeout && ($timeout > 0);
 
 	$timeout += time();
@@ -941,7 +1000,7 @@ sub dequeue_until {
 	while (1)
 	{
 		lock(@{$obj->[TQD_Q]});
-	
+
 		1
 	   	while ((! scalar @{$obj->[TQD_Q]}) &&
 	   		cond_timedwait(@{$obj->[TQD_Q]}, $timeout));
@@ -985,7 +1044,7 @@ sub dequeue_nb {
     while (1)
     {
 		lock(@{$obj->[TQD_Q]});
-		return undef 
+		return undef
 			unless scalar @{$obj->[TQD_Q]};
 		$request = shift @{$obj->[TQD_Q]};
 #   print threads->self()->tid(), " dequeue_nb\n";
@@ -1021,8 +1080,8 @@ sub dequeue_urgent {
     while (1)
     {
 		lock(@{$obj->[TQD_Q]});
-		return undef 
-			unless (scalar @{$obj->[TQD_Q]}) && 
+		return undef
+			unless (scalar @{$obj->[TQD_Q]}) &&
 				${$obj->[TQD_URGENT_COUNT]};
 		$request = shift @{$obj->[TQD_Q]};
     	${$obj->[TQD_URGENT_COUNT]}--
@@ -1075,7 +1134,7 @@ sub set_max_pending {
     $@ = 'Invalid limit.',
     return undef
     	unless (defined($limit) && ($limit=~/^\d+/) && ($limit >= 0));
-  
+
 	lock(@{$obj->[TQD_Q]});
     ${$obj->[TQD_MAX_PENDING]} = $limit;
 #
@@ -1095,7 +1154,7 @@ sub _create_resp {
 #
 	my $i = 0;
 	foreach (@_) {
-		if (ref $_ && 
+		if (ref $_ &&
 			(ref $_ ne 'ARRAY') &&
 			(ref $_ ne 'HASH') &&
 			(ref $_ ne 'SCALAR') &&
@@ -1147,7 +1206,7 @@ sub respond {
 #	common function for filtering response list
 #
 sub _filter_resp {
-	my $result = shift;
+	my ($obj, $result) = @_;
 #
 #	collapse the response elements
 #
@@ -1155,7 +1214,7 @@ sub _filter_resp {
 	my $class;
 	$class = shift @$result,
 	push (@results,
-		$class ? 
+		$class ?
 		${class}->onDequeue(shift @$result) :
 		shift @$result)
 		while (@$result);
@@ -1164,7 +1223,7 @@ sub _filter_resp {
 
 sub wait {
 	my $obj = shift;
-	my $id = shift;	
+	my $id = shift;
 
 	my $result;
 	{
@@ -1177,7 +1236,7 @@ sub wait {
     	cond_signal %{$obj->[TQD_MAP]}
     		if keys %{$obj->[TQD_MAP]};
     }
-    return _filter_resp($result);
+    return $obj->_filter_resp($result);
 }
 *dequeue_response = \&wait;
 
@@ -1207,7 +1266,7 @@ sub available {
 sub wait_until {
 	my ($obj, $id, $timeout) = @_;
 
-    return undef 
+    return undef
     	unless $timeout && ($timeout > 0);
 	$timeout += time();
 	my $result;
@@ -1224,7 +1283,7 @@ sub wait_until {
 	    cond_signal %{$obj->[TQD_MAP]}
 	    	if keys %{$obj->[TQD_MAP]};
 	}
-    return $result ? _filter_resp($result) : undef;
+    return $result ? $obj->_filter_resp($result) : undef;
 }
 #
 #	some grouped waits
@@ -1240,19 +1299,19 @@ sub wait_any {
 	{
 		lock(%{$obj->[TQD_MAP]});
 #
-#	cond_wait isn't behaving as expected, so we need to 
+#	cond_wait isn't behaving as expected, so we need to
 #	test first, then wait if needed
 #
-   		map { 
+   		map {
    			$responses{$_} = delete $obj->[TQD_MAP]{$_}
-   				if $obj->[TQD_MAP]{$_}; 
+   				if $obj->[TQD_MAP]{$_};
    		} @_;
 
 		until (keys %responses) {
 			cond_wait %{$obj->[TQD_MAP]};
-		   	map { 
+		   	map {
 		   		$responses{$_} = delete $obj->[TQD_MAP]{$_}
-		   			if $obj->[TQD_MAP]{$_}; 
+		   			if $obj->[TQD_MAP]{$_};
 		   	} @_;
 #
 #	go ahead and signal...if no one's waiting, no harm
@@ -1260,7 +1319,7 @@ sub wait_any {
 		    cond_signal %{$obj->[TQD_MAP]};
 		}
 	}
-	$responses{$_} = _filter_resp($responses{$_})
+	$responses{$_} = $obj->_filter_resp($responses{$_})
 		foreach (keys %responses);
     return \%responses;
 }
@@ -1273,28 +1332,28 @@ sub wait_any_until {
 		unless ref $obj;
 
 	my $timeout = shift;
-	
+
 	return undef unless $timeout && ($timeout > 0);
 	$timeout += time();
-	
+
 	my %responses = ();
 	{
 		lock(%{$obj->[TQD_MAP]});
 #
-#	cond_wait isn't behaving as expected, so we need to 
+#	cond_wait isn't behaving as expected, so we need to
 #	test first, then wait if needed
 #
-	   	map { 
+	   	map {
 	   		$responses{$_} = delete $obj->[TQD_MAP]{$_}
-	   			if $obj->[TQD_MAP]{$_}; 
+	   			if $obj->[TQD_MAP]{$_};
 	   	} @_;
 
-		while ((! keys %responses) && 
+		while ((! keys %responses) &&
 			cond_timedwait(%{$obj->[TQD_MAP]}, $timeout)) {
 
-	   		map { 
+	   		map {
 		   		$responses{$_} = delete $obj->[TQD_MAP]{$_}
-	   				if $obj->[TQD_MAP]{$_}; 
+	   				if $obj->[TQD_MAP]{$_};
 	   		} @_;
 #
 #	go ahead and signal...if no one's waiting, no harm
@@ -1302,7 +1361,7 @@ sub wait_any_until {
 		    cond_signal %{$obj->[TQD_MAP]};
 		}
 	}
-	$responses{$_} = _filter_resp($responses{$_})
+	$responses{$_} = $obj->_filter_resp($responses{$_})
 		foreach (keys %responses);
     return keys %responses ? \%responses : undef;
 }
@@ -1315,16 +1374,16 @@ sub wait_all {
 	my %responses = ();
 	{
 		lock(%{$obj->[TQD_MAP]});
-	   	map { 
+	   	map {
 	   		$responses{$_} = delete $obj->[TQD_MAP]{$_}
-	   			if $obj->[TQD_MAP]{$_}; 
+	   			if $obj->[TQD_MAP]{$_};
 	   	} @_;
 		until (scalar keys %responses == scalar @_) {
 			cond_wait %{$obj->[TQD_MAP]};
 
-		   	map { 
+		   	map {
 		   		$responses{$_} = delete $obj->[TQD_MAP]{$_}
-		   			if $obj->[TQD_MAP]{$_}; 
+		   			if $obj->[TQD_MAP]{$_};
 		   	} @_;
 #
 #	go ahead and signal...if no one's waiting, no harm
@@ -1332,7 +1391,7 @@ sub wait_all {
 		    cond_signal %{$obj->[TQD_MAP]};
 		}
 	}
-	$responses{$_} = _filter_resp($responses{$_})
+	$responses{$_} = $obj->_filter_resp($responses{$_})
 		foreach (keys %responses);
     return \%responses;
 }
@@ -1344,27 +1403,27 @@ sub wait_all_until {
 		unless ref $obj;
 
 	my $timeout = shift;
-	
+
 	return undef unless $timeout && ($timeout > 0);
 	$timeout += time();
-	
+
 	my %responses = ();
 	{
 		lock(%{$obj->[TQD_MAP]});
-   		map { 
+   		map {
    			$responses{$_} = delete $obj->[TQD_MAP]{$_}
-   				if $obj->[TQD_MAP]{$_}; 
+   				if $obj->[TQD_MAP]{$_};
    		} @_;
-		while ((scalar keys %responses != scalar @_) && 
+		while ((scalar keys %responses != scalar @_) &&
 			cond_timedwait(%{$obj->[TQD_MAP]}, $timeout)) {
 
    			map {
 		   		$responses{$_} = $obj->[TQD_MAP]{$_}
-   					if $obj->[TQD_MAP]{$_}; 
+   					if $obj->[TQD_MAP]{$_};
    			} @_;
 #
 #	go ahead and signal...if no one's waiting, no harm
-#	
+#
 		    cond_signal %{$obj->[TQD_MAP]};
 		}
 #
@@ -1373,7 +1432,7 @@ sub wait_all_until {
 		map { delete $obj->[TQD_MAP]{$_} } @_
 			if (scalar keys %responses == scalar @_);
 	}
-	$responses{$_} = _filter_resp($responses{$_})
+	$responses{$_} = $obj->_filter_resp($responses{$_})
 		foreach (keys %responses);
 #print 'list has ', scalar @_, ' we got ', scalar keys %responses, "\n";
     return (scalar keys %responses == scalar @_) ? \%responses : undef;
@@ -1381,7 +1440,7 @@ sub wait_all_until {
 
 sub mark {
 	my ($obj, $id, $value) = @_;
-	
+
 	$value = 1 unless defined($value);
 	lock(%{$obj->[TQD_MAP]});
 	lock(%{$obj->[TQD_MARKS]});
@@ -1397,7 +1456,7 @@ sub mark {
 
 sub unmark {
 	my ($obj, $id) = @_;
-	
+
 	lock(%{$obj->[TQD_MARKS]});
 	delete $obj->[TQD_MARKS]{$id};
 	return $obj;
@@ -1473,9 +1532,16 @@ sub cancel_all {
 #	then cancel all the pending requests by
 #	setting their IDs to -1
 #
-	delete $obj->[TQD_MARKS]{$_->[0]},
-	$_->[0] = -1
-		foreach (@{$obj->[TQD_Q]});
+#	UPDATED per bug reported on CPAN
+#
+#	delete $obj->[TQD_MARKS]{$_->[0]},
+#	$_->[0] = -1
+#		foreach (@{$obj->[TQD_Q]});
+    foreach (@{$obj->[TQD_Q]}) {
+	    delete $obj->[TQD_MARKS]{$_->[0]}
+            if defined($_->[0]);
+	    $_->[0] = -1;
+    }
 #
 #	how will we cancel inprogress requests ??
 #	need a map value, or alternate map...
@@ -1495,15 +1561,16 @@ sub _tqd_wait {
 #	validate params
 #
 	map {
-		return undef 
-			unless ($_ && 
-				ref $_ && 
+		return undef
+			unless ($_ &&
+				ref $_ &&
 				(
-					((ref $_ eq 'ARRAY') && 
+					((ref $_ eq 'ARRAY') &&
 						($#$_ >= 0) &&
 						ref $_->[0] &&
-						(ref $_->[0] eq 'Thread::Queue::Duplex')) ||
-					$_->[0]->isa('Thread::Queue::Duplex')
+						$_->[0]->isa('Thread::Queue::Duplex')
+					) ||
+					$_->isa('Thread::Queue::Duplex')
 				));
 	} @_;
 
@@ -1522,7 +1589,7 @@ sub _tqd_wait {
 #	queue only, check for pending requests
 #
 				lock(@{$q->[TQD_Q]});
-		    	(scalar @{$q->[TQD_Q]}) ?
+		    	$q->pending ?
 					push @avail, $q :
 					push @remain, $_;
 				next;
@@ -1561,25 +1628,9 @@ sub _tqd_wait {
 ##########################################################
 
 ###############################################
-#	
-#	OVERRIDE TQQ METHODS
-#	default onEnqueue, onDequeue, and onCancel OK
+#
+#	All TQQ default methods can be used as is
 #
 ###############################################
-#
-#	provide curse and redeem methods
-#	to support passing between threads
-#
-sub curse {
-#
-#	we're shared already
-#
-	return shift;
-}
-
-sub redeem {
-	my ($class, $obj) = @_;
-	return bless $obj, $class;
-}
 
 1;
