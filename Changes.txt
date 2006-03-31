@@ -1,5 +1,24 @@
 Changes for Thread::Queue::Duplex
 
+0.92	2006-Mar-05 D. Arnold
+
+	- added Thread::Queue::TQDContainer abstract class; made TQD a TQDContainer
+	
+	- updated class wait() methods to use Thread::Queue::TQDContainer,
+		rather than TQD's directly
+
+0.91	2006-Feb-18 D. Arnold
+
+	- updated TQD to properly use onEnqueue() in list context
+	
+	- added psichedoc classdocs, and modified Pod-ProjectDocs
+	
+	- changed to Academic Free License v2.1
+	
+	- fixed lock signalling bug in wait_until()
+	
+	- perf. opt. in wait()'s to reduce number of deref's
+
 0.90	2006-Jan-31 D. Arnold
 
 	- updated TQQ default redeem to auto-rebless thread::shared objects

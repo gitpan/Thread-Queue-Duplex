@@ -1,12 +1,12 @@
 use strict;
 use warnings;
 use vars qw($testno $loaded $srvtype);
-BEGIN { 
-	my $tests = 78; 
+BEGIN {
+	my $tests = 80;
 	print STDERR "Note: some tests have significant delays...\n";
-	$^W= 1; 
-	$| = 1; 
-	print "1..$tests\n"; 
+	$^W= 1;
+	$| = 1;
+	print "1..$tests\n";
 }
 
 END {print "not ok $testno\n" unless $loaded;}
@@ -51,6 +51,31 @@ sub redeem {
 
 1;
 
+package SharedQable;
+use Thread::Queue::Queueable;
+
+use base qw(Thread::Queue::Queueable);
+
+sub new {
+	my %obj : shared = ( Value => 1);
+	return bless \%obj, shift;
+}
+
+sub set_value {
+	my $obj = shift;
+	$obj->{Value}++;
+	return 1;
+}
+
+sub get_value { return shift->{Value}; }
+
+sub redeem {
+	my ($class, $obj) = @_;
+	return bless $obj, $class;
+}
+
+1;
+
 package main;
 
 use threads;
@@ -61,13 +86,13 @@ $srvtype = 'init';
 
 sub report_ok {
 
-	print "ok $testno ", shift, " for $srvtype\n";
+	print "ok $testno # ", shift, " for $srvtype\n";
 	$testno++;
 }
 
 sub report_fail {
 
-	print "not ok $testno ", shift, " for $srvtype\n";
+	print "not ok $testno # ", shift, " for $srvtype\n";
 	$testno++;
 }
 #
@@ -92,6 +117,10 @@ sub run_dq {
 
 		if ($req->[0] eq 'wait') {
 			sleep($req->[1]);
+		}
+
+		if ($req->[1] && ref $req->[1] && (ref $req->[1] eq 'SharedQable')) {
+			$req->[1]->set_value();
 		}
 #
 #	ignore simplex msgs
@@ -122,7 +151,7 @@ sub run_nb {
 
 		$q->ignore(),
 		$q->respond($id, 'stopped'),
-		last 
+		last
 			if ($req->[0] eq 'stop');
 
 #print STDERR join(', ', @$req), "\n";
@@ -154,7 +183,7 @@ sub run_until {
 
 		$q->ignore(),
 		$q->respond($id, 'stopped'),
-		last 
+		last
 			if ($req->[0] eq 'stop');
 
 		sleep($req->[1])
@@ -178,7 +207,7 @@ sub run_requestor {
 	while (1) {
 		my $id = $q->enqueue('request');
 		my $resp = $q->wait($id);
-		
+
 		last
 			if ($resp->[0] eq 'stop');
 	}
@@ -202,7 +231,7 @@ sub run_urgent {
 
 		$q->ignore(),
 		$q->respond($id, 'stopped'),
-		last 
+		last
 			if ($req->[0] eq 'stop');
 
 		sleep($req->[1])
@@ -239,6 +268,7 @@ my ($result, $id, $server);
 
 my $start = $ARGV[0] || 0;
 my $qable = Qable->new();
+my $sharedqable = SharedQable->new();
 
 foreach ($start..$#servers) {
 	$server = threads->new($servers[$_], $q);
@@ -253,14 +283,14 @@ foreach ($start..$#servers) {
 #	test enqueue_simplex
 #
 	$id = $q->enqueue_simplex('foo', 'bar');
-	defined($id) ? 
+	defined($id) ?
 		report_ok('enqueue_simplex()') :
 		report_fail('enqueue_simplex()');
 #
 #	test enqueue
 #
 	$id = $q->enqueue('foo', 'bar');
-	defined($id) ? 
+	defined($id) ?
 		report_ok('enqueue()') :
 		report_fail('enqueue()');
 #
@@ -273,10 +303,10 @@ foreach ($start..$#servers) {
 #	test wait()
 #
 	$result = $q->wait($id);
-	
-	(defined($result) && 
+
+	(defined($result) &&
 		($result->[0] eq 'foo') &&
-		($result->[1] eq 'bar')) ? 
+		($result->[1] eq 'bar')) ?
 		report_ok('wait()') :
 		report_fail('wait()');
 #
@@ -284,27 +314,28 @@ foreach ($start..$#servers) {
 #
 	$id = $q->enqueue('foo', 'bar');
 	$result = $q->dequeue_response($id);
-	(defined($result) && 
+	(defined($result) &&
 		($result->[0] eq 'foo') &&
-		($result->[1] eq 'bar')) ? 
+		($result->[1] eq 'bar')) ?
 		report_ok('dequeue_response()') :
 		report_fail('dequeue_response()');
 #
 #	test Queueable enqueue
 #
 	$id = $q->enqueue('foo', $qable);
-	defined($id) ? 
+	defined($id) ?
 		report_ok('enqueue() Queueable') :
 		report_fail('enqueue() Queueable');
 
 	$result = $q->wait($id);
-	
-	(defined($result) && 
+
+	(defined($result) &&
 		($result->[0] eq 'foo') &&
 		(ref $result->[1]) &&
-		(ref $result->[1] eq 'Qable')) ? 
+		(ref $result->[1] eq 'Qable')) ?
 		report_ok('wait() Queueable') :
 		report_fail('wait() Queueable');
+#
 #
 #	test wait_until, enqueue_urgent
 #
@@ -320,7 +351,7 @@ foreach ($start..$#servers) {
 #	should get wait reply here
 #
 	$result = $q->wait_until($id, 5);
-	defined($result) && 
+	defined($result) &&
 		($result->[0] eq 'wait') ?
 		report_ok('wait_until()') :
 		report_fail('wait_until()');
@@ -328,7 +359,7 @@ foreach ($start..$#servers) {
 #	should get urgent reply here
 #
 	$result = $q->wait($id2);
-	defined($result) && 
+	defined($result) &&
 		($result->[0] eq 'urgent') ?
 		report_ok('enqueue_urgent()') :
 		report_fail('enqueue_urgent()');
@@ -356,9 +387,9 @@ foreach ($start..$#servers) {
 			unless defined($result) &&
 				(ref $result) &&
 				(ref $result eq 'HASH');
-		map { 
-			$failed = 1 
-				unless delete $ids{$_}; 
+		map {
+			$failed = 1
+				unless delete $ids{$_};
 		} keys %$result;
 		last
 			if $failed;
@@ -388,8 +419,8 @@ foreach ($start..$#servers) {
 					(ref $result) &&
 					(ref $result eq 'HASH');
 			map {
-				$failed = 1 
-					unless delete $ids{$_}; 
+				$failed = 1
+					unless delete $ids{$_};
 			} keys %$result;
 			last
 				if $failed;
@@ -408,18 +439,18 @@ foreach ($start..$#servers) {
 #
 	sleep 1;
 	my @avail = $q->available;
-	scalar @avail ? 
+	scalar @avail ?
 		report_ok('available (array)') :
 		report_fail('available (array)');
 
 	$id = $q->available;
-	$id ? 
+	$id ?
 		report_ok('available (scalar)') :
 		report_fail('available (scalar)');
 
 	$id = keys %ids;
 	@avail = $q->available($id);
-	scalar @avail ? 
+	scalar @avail ?
 		report_ok('available (id)') :
 		report_fail('available (id)');
 #
@@ -483,7 +514,7 @@ foreach ($start..$#servers) {
 	$result = $q->wait_until($id, 1);
 	$q->cancel_all();
 #print "Cancel all: pending :", $q->pending, " avail ", $q->available, "\n";
-	$q->pending || $q->available ? 
+	$q->pending || $q->available ?
 		report_fail('cancel_all()') : report_ok('cancel_all()');
 #
 #	kill the thread; also tests urgent i/f
@@ -499,7 +530,7 @@ foreach ($start..$#servers) {
 	$q->enqueue('no listener') ?
 		report_fail('enqueue() wo/ listener') :
 		report_ok('enqueue() wo/ listener');
-	
+
 }	#end foreach server method
 #
 #	now test the class-level waits:
@@ -510,9 +541,28 @@ foreach ($start..$#servers) {
 	my $newq = Thread::Queue::Duplex->new(ListenerRequired => 1);
 	$server = threads->new($servers[0], $q);
 	$srvtype = $types[0];
+	$q->wait_for_listener();
+#
+#	test shared Queueable enqueue
+#
+	$id = $q->enqueue('foo', $sharedqable);
+	defined($id) ?
+		report_ok('enqueue() shared Queueable') :
+		report_fail('enqueue() shared Queueable');
+
+	$result = $q->wait($id);
+
+	(defined($result) &&
+		($result->[0] eq 'foo') &&
+		(ref $result->[1]) &&
+		(ref $result->[1] eq 'SharedQable') &&
+		($result->[1]->get_value == 2)) ?
+		report_ok('wait() Queueable') :
+		report_fail('wait() Queueable');
+
+
 	my $requestor = threads->new(\&run_requestor, $newq);
 	$newq->listen();
-	$q->wait_for_listener();
 	my @qs = ();
 #
 #	post request to listener
@@ -520,7 +570,8 @@ foreach ($start..$#servers) {
 #
 	$id = $q->enqueue('wait', 3);
 print "ID is undef!!!\n" unless defined($id);
-	@qs = Thread::Queue::Duplex->wait_any([$q, $id], [$newq]);
+#	@qs = Thread::Queue::Duplex->wait_any([$q, $id], [$newq]);
+	@qs = Thread::Queue::Duplex->wait_any([$q, $id], $newq);
 	unless (scalar @qs) {
 		report_fail('class-level wait_any()');
 	}
@@ -544,7 +595,7 @@ print "ID is undef!!!\n" unless defined($id);
 #
 #	now timed wait_any
 #
-	$id = $q->enqueue('wait', 3);
+	$id = $q->enqueue('wait', 5);
 	@qs = Thread::Queue::Duplex->wait_any_until(3, [$q, $id], [$newq]);
 	unless (scalar @qs) {
 		report_fail('class-level wait_any_until()');
@@ -672,7 +723,7 @@ print "ID is undef!!!\n" unless defined($id);
 		$failed = 1
 			unless ($result->[0] eq 'CANCEL');
 	}
-	$failed ? 
+	$failed ?
 		report_fail('mark') :
 		report_ok('mark');
 
@@ -691,9 +742,9 @@ print "ID is undef!!!\n" unless defined($id);
 	foreach (keys %$result) {
 		$failed = 1, last unless ($_ == $id2);
 	}
-	$failed ? 
+	$failed ?
 		report_fail('dequeue_urgent') :
-		report_ok('dequeue_urgent');	
+		report_ok('dequeue_urgent');
 
 	$q->enqueue_simplex_urgent('stop');
 	$server->join;
